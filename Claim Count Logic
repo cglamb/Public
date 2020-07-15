@@ -1,0 +1,77 @@
+drop table dat;
+
+create table dat(
+    claim_number varchar(50),
+    peril varchar(50),
+    acc_dt date,
+    trans_dt date,
+    loss_res number,
+    paid_loss number);
+    
+insert all
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000001','Fire',to_date('03/06/2019','mm/dd/yyyy'),to_date('11/22/2019','mm/dd/yyyy'),4523,0)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000001','Fire',to_date('03/06/2019','mm/dd/yyyy'),to_date('05/12/2020','mm/dd/yyyy'),-4416,4416)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000001','Fire',to_date('03/06/2019','mm/dd/yyyy'),to_date('06/01/2020','mm/dd/yyyy'),-107,20)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000002','Fire',to_date('01/15/2019','mm/dd/yyyy'),to_date('03/13/2020','mm/dd/yyyy'),13694,0)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000002','Fire',to_date('01/15/2019','mm/dd/yyyy'),to_date('06/01/2020','mm/dd/yyyy'),-8596,8596)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000003','Water',to_date('05/26/2020','mm/dd/yyyy'),to_date('06/26/2020','mm/dd/yyyy'),80112,0)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000003','Water',to_date('05/26/2020','mm/dd/yyyy'),to_date('06/29/2020','mm/dd/yyyy'),-62583,62583)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000004','Water',to_date('05/08/2020','mm/dd/yyyy'),to_date('05/26/2020','mm/dd/yyyy'),81642,0)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000005','Wind',to_date('07/17/2019','mm/dd/yyyy'),to_date('01/17/2020','mm/dd/yyyy'),24367,0)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000005','Wind',to_date('07/17/2019','mm/dd/yyyy'),to_date('06/01/2020','mm/dd/yyyy'),-24367,0)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000006','Fire',to_date('03/11/2020','mm/dd/yyyy'),to_date('04/02/2020','mm/dd/yyyy'),85118,0)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000007','Fire',to_date('07/24/2019','mm/dd/yyyy'),to_date('02/13/2020','mm/dd/yyyy'),87229,0)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000007','Fire',to_date('07/24/2019','mm/dd/yyyy'),to_date('06/15/2020','mm/dd/yyyy'),-35221,35221)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000007','Fire',to_date('07/24/2019','mm/dd/yyyy'),to_date('06/26/2020','mm/dd/yyyy'),-52008,35152)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000008','Wind',to_date('04/19/2020','mm/dd/yyyy'),to_date('05/08/2020','mm/dd/yyyy'),97673,0)
+    into dat (claim_number, peril, acc_dt, trans_dt, loss_res, paid_loss) values ('10000000008','Wind',to_date('04/19/2020','mm/dd/yyyy'),to_date('06/24/2020','mm/dd/yyyy'),-54819,54819)
+select * from dual;
+
+/
+
+with 
+
+order_dat as (
+select
+    a.*,
+    1 as dummy
+from dat a
+order by a.claim_number, a.peril, a.acc_dt, a.trans_dt),
+
+itd_dat as(
+select
+    a.*,
+    sum(a.loss_res) over (partition by claim_number, peril, acc_dt order by trans_dt) as itd_loss_res,
+    sum(a.paid_loss) over (partition by claim_number, peril, acc_dt order by trans_dt) as itd_paid_loss,
+    sum(a.dummy) over (partition by claim_number, peril, acc_dt order by trans_dt) as unique_id
+from order_dat a),
+
+itd_cnt as(
+select
+    a.unique_id,
+    a.claim_number,
+    a.peril,
+    a.acc_dt,
+    a.trans_dt,
+    a.loss_res,
+    a.paid_loss,
+    a.itd_loss_res,
+    a.itd_paid_loss,
+    case when a.itd_loss_res != 0 then 1 else 0 end as itd_open,
+    case when a.itd_paid_loss != 0 and a.itd_loss_res = 0 then 1 else 0 end as itd_CWP,
+    case when a.itd_paid_loss = 0 and a.itd_loss_res = 0 then 1 else 0 end as itd_CWOP
+from itd_dat a)
+
+select 
+    a.claim_number,
+    a.peril,
+    a.acc_dt,
+    a.trans_dt,
+    a.loss_res,
+    a.paid_loss,
+    case when a.itd_open is null then 0 else a.itd_open end - case when b.itd_open is null then 0 else b.itd_open end as open,
+    case when a.itd_cwp is null then 0 else a.itd_cwp end - case when b.itd_cwp is null then 0 else b.itd_cwp end as cwp,
+    case when a.itd_cwop is null then 0 else a.itd_cwop end - case when b.itd_cwop is null then 0 else b.itd_cwop end as cwop
+from itd_cnt a
+left join itd_cnt b on a.unique_id = b.unique_id + 1 and a.claim_number = b.claim_number
+order by claim_number, peril, acc_dt, trans_dt
