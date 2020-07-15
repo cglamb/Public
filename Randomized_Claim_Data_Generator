@@ -1,0 +1,160 @@
+/*drop tables */
+
+drop table claim_table; /*clearing tables from temp for our usage*/
+drop table peril_lookup; /*skip this step if you dont have these tables*/
+
+/
+
+/*create template tables*/
+
+create table claim_table (
+    claim_number int,
+    peril_int int,
+    peril varchar(50),
+    acc_dt date,
+    rec_dt date,
+    intial_res int,
+    num_pays int,
+    pay1 int,
+    case1 int,
+    pay1_dt date,
+    pay2 int,
+    case2 int,
+    pay2_dt date
+);
+
+create table peril_lookup (
+    peril_int int,
+    peril varchar(50)
+);
+
+insert all /*we will assign a random integer between 1 and 3 to determine peril and then map back using this table*/
+    into peril_lookup (peril_int, peril) values (1,'Wind')
+    into peril_lookup (peril_int, peril) values (2,'Water') 
+    into peril_lookup (peril_int, peril) values (3,'Fire')
+select * from dual;
+
+/
+
+/*creating claim_number, random loss_date, and random inital reserve balance, and determine number of subsequent payments our adjuster has made*/
+
+begin
+    for l_count in 1..100
+loop
+insert into claim_table (claim_number,peril_int,acc_dt,intial_res,num_pays)
+    select
+        10000000000+l_count as claim_number,
+        floor(dbms_random.value(1,4)) as peril_int,        
+        to_date(
+            trunc(
+                dbms_random.value(
+                    to_char(date '2019-01-01','J'),
+                        to_char(date '2020-06-30','J')
+                        ))
+                ,'J') as acc_dt,
+        floor(dbms_random.value(1,100000)) as intial_res,
+        floor(dbms_random.value(0,3)) as num_pays
+    from dual a;
+end loop;
+commit;
+end;
+
+/
+
+/*create randomized payment amounts, payment dates, record date (when reported to adjuster), and make database transactional*/
+
+with
+    
+dat1 as ( /*randomize record date and determine first payment amount*/
+select 
+    a.claim_number,
+    a.peril_int,
+    b.peril,
+    a.acc_dt,
+    to_date(
+         trunc(
+            dbms_random.value(
+                to_char(a.acc_dt,'J'),
+                        to_char(date '2020-06-30','J')
+                        ))
+                ,'J') as rec_dt,
+    a.intial_res,
+    a.num_pays,
+    case when a.num_pays > 0 then floor(dbms_random.value(0,a.intial_res)) else 0 end as pay1
+from claim_table a
+left join peril_lookup b on a.peril_int = b.peril_int),
+
+pay1 as (/*first payment date, needed record date to determine first payment date...thats why determine pay_dt in this step*/
+select
+    a.*,
+    to_date(
+         trunc(
+            dbms_random.value(
+                to_char(a.rec_dt,'J'),
+                        to_char(date '2020-06-30','J')
+                        ))
+                ,'J') as pay1_dt
+from dat1 a),
+
+pay2 as (/*determine second payment amount and second payment date*/
+select
+    a.*,
+    case when a.num_pays > 1 then 
+        case when a.intial_res - a.pay1 = 0 then 0 else floor(dbms_random.value(0,a.intial_res - a.pay1)) end 
+    else 0 end as pay2,
+        to_date(
+         trunc(
+            dbms_random.value(
+                to_char(a.pay1_dt,'J'),
+                        to_char(date '2020-06-30','J')
+                        ))
+                ,'J') as pay2_dt
+from pay1 a),
+
+add_case as ( /*reducing case reserve for each payment*/
+select 
+    a.*,
+    -a.pay1 as case1,
+    -a.pay2 as case2
+from pay2 a),
+
+trans_pt1 as ( /*transactional data for inital reserve increase*/
+select
+    a.claim_number,
+    a.peril,
+    a.acc_dt,
+    a.rec_dt as trans_dt,
+    a.intial_res as loss_res,
+    0 as paid_loss
+from add_Case a),
+
+trans_pt2 as (/*trans data for first payment*/
+select
+    a.claim_number,
+    a.peril,
+    a.acc_dt,
+    a.pay1_dt as trans_dt,
+    a.case1 as loss_res,
+    a.pay1 as paid_loss
+from add_case a),
+
+trans_pt3 as (/*trans data for second payment*/
+select
+    a.claim_number,
+    a.peril,
+    a.acc_dt,
+    a.pay2_dt as trans_dt,
+    a.case2 as loss_res,
+    a.pay2 as paid_loss
+from add_case a),
+
+trans_full as (
+select * from trans_pt1
+union
+select * from trans_pt2
+union
+select * from trans_pt3)
+
+select * from trans_full /*only carry records where there is a nonzero transaction*/
+where abs(loss_res) + abs(paid_loss) > 0
+order by claim_number, peril, acc_dt, trans_dt
