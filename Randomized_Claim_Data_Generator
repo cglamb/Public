@@ -157,4 +157,4 @@ select * from trans_pt3)
 
 select * from trans_full /*only carry records where there is a nonzero transaction*/
 where abs(loss_res) + abs(paid_loss) > 0
-order by claim_number, peril, acc_dt, trans_dt
+order by claim_number, peril, acc_dt, trans_dt 
