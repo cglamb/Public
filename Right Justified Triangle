@@ -1,0 +1,38 @@
+/*OBJECTIVE*/
+/* build a right justified triangle based on incremental claim activity*/
+/*table generated based on randomly generated data from my Randomized Claim Data Generator*/
+/*initial data was stored in a private schema table, so other users will need to replace initial reference to kcscgl.dat*/
+
+with 
+
+sum_table as ( /*this table generates summarized that could be thrown in excel and pivoted if desired*/
+    select
+        peril,
+        extract(year from acc_dt) as ay,
+        ceil(extract(month from acc_dt)/3) as aq,
+        extract(year from trans_date)*100 + ceil(extract(month from trans_date)/3) as cq,
+        sum(loss_res+paid_loss) as incd_loss
+    from kcscgl.dat 
+    group by 
+        extract(year from acc_dt),
+        ceil(extract(month from acc_dt)/3),
+        peril,
+        extract(year from trans_date)*100 + ceil(extract(month from trans_date)/3)
+    order by 
+        peril,
+        extract(year from acc_dt),
+        ceil(extract(month from acc_dt)/3),
+        extract(year from trans_date)*100 + ceil(extract(month from trans_date)/3)
+)
+        
+select
+    *
+from sum_table
+pivot
+(
+    sum(incd_loss)
+    for cq
+    in (201901, 201902, 201903, 201904, 202001, 202002)
+
+)
+order by peril, ay, aq
