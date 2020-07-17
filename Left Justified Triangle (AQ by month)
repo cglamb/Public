@@ -1,0 +1,40 @@
+
+/*OBJECTIVE*/
+/* build a left justified triangle based on incremental claim activity*/
+/* will build accident quarter by monthly age triagle*/
+/*table generated based on randomly generated data from my Randomized Claim Data Generator*/
+/*initial data was stored in a private schema table, so other users will need to replace initial reference to kcscgl.dat*/
+
+with 
+
+sum_table as ( /*this table generates summarized that could be thrown in excel and pivoted if desired*/
+    select
+        peril,
+        extract(year from acc_dt) as ay,
+        ceil(extract(month from acc_dt)/3) as aq,
+        (extract(year from trans_date) - extract(year from acc_dt))*12 + (extract(month from trans_date) - (ceil(extract(month from acc_dt)/3)*3- 2) + 1) as age,
+        sum(loss_res+paid_loss) as incd_loss
+    from kcscgl.dat 
+    group by 
+        extract(year from acc_dt),
+        ceil(extract(month from acc_dt)/3),
+        peril,
+        (extract(year from trans_date) - extract(year from acc_dt))*12 + (extract(month from trans_date) - (ceil(extract(month from acc_dt)/3)*3- 2) + 1)
+    order by 
+        peril,
+        extract(year from acc_dt),
+        ceil(extract(month from acc_dt)/3),
+        (extract(year from trans_date) - extract(year from acc_dt))*12 + (extract(month from trans_date) - (ceil(extract(month from acc_dt)/3)*3- 2) + 1)
+)
+        
+select
+    *
+from sum_table
+pivot
+(
+    sum(incd_loss)
+    for age
+    in (1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18) /*now it gets a little tedious...unfortunately SQL doesnt support a sub select in here*/
+
+)
+order by peril, ay, aq
